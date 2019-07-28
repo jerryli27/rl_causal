@@ -1,5 +1,5 @@
 """A predictive model with causal reasoning abilities under the RL framework."""
-import tensorflow as tf
+import numpy as np
 from tensorflow import keras
 
 
@@ -57,29 +57,32 @@ class PredictiveModel(object):
 
 
 
-def get_predictive_model(input_intervened_state, model_type):
-  input_shape = output_shape = keras.backend.int_shape(input_intervened_state)
+def get_predictive_model_one_hot(intervened_state_logits, model_type):
+  # Assumes input_state is one-hot with shape (batch, dims, one_hot_state)
+  input_shape = output_shape = keras.backend.int_shape(intervened_state_logits)
+
   if model_type == 'fc':
     # Hard coded dimensions for now.
 
     # Assume for now that there is no covariance matrix
-    assert len(input_shape) == 2, 'wrong input shape'
-    assert len(output_shape) == 2, 'wrong output shape'
+    assert len(input_shape) >= 2, 'wrong input shape'
+    assert len(output_shape) >= 2, 'wrong output shape'
+
+    output_dim = np.prod(input_shape[1:])
+
     # Hard coded dimensions for now.
     prediction_model = keras.models.Sequential([
-      # keras.layers.Dense(32, input_shape=input_shape, kernel_regularizer=keras.regularizers.l1_l2(l1=0.01, l2=0.01)),
+      keras.layers.Flatten(name='flatten'),
+      # keras.layers.Dense(32, input_shape=input_shape, kernel_regularizer=keras.regularizers.l1_l2(l1=0.001, l2=0.001)),
       # keras.layers.Activation('relu'),
-      keras.layers.Dense(output_shape[1], kernel_regularizer=keras.regularizers.l1_l2(l1=0.001, l2=0.001), bias_regularizer=keras.regularizers.l1_l2(l1=0, l2=10000), name='fc1'),
-      # keras.layers.Activation('softmax'),
+      keras.layers.Dense(output_dim, kernel_regularizer=keras.regularizers.l1_l2(l1=0.001, l2=0.001), bias_regularizer=keras.regularizers.l1_l2(l1=0.001, l2=0.001), name='fc1'),
+      keras.layers.Reshape(output_shape[1:], name='flatten'),
     ], name='predictive_model')
-    # prediction_model.compile(
-    #   optimizer='adagrad',
-    #   loss='binary_crossentropy',
-    #   metrics=['accuracy'])
   else:
     raise NotImplementedError('Model type %s is not supported' % model_type)
 
 
-  output = keras.layers.add([prediction_model(input_intervened_state), input_intervened_state],
-                            name='predicted_next_state')
+  output = keras.layers.add(
+    [prediction_model(intervened_state_logits), intervened_state_logits],
+    name='predicted_next_state_logits')
   return output

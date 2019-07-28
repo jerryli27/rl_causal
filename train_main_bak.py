@@ -23,7 +23,7 @@ def print_action_embed_diff(model, action_embed):
   predicted_action_embed_layer = model.get_layer('action_embed')
   predicted_action_embed_weights = predicted_action_embed_layer.get_weights()
   print_diff(predicted_action_embed_weights, action_embed)
-  
+
 def print_diff(predicted, expected):
   print(predicted)
   print(expected)
@@ -66,7 +66,6 @@ if __name__ == '__main__':
   print(score)
 
   print_action_embed_diff(model, action_embed)
-
 
   intervened_state_layer = model.get_layer('intervened_state')
   intervened_state_model = keras.models.Model(inputs=model.input,
