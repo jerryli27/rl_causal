@@ -8,7 +8,8 @@ class TwoDigitsEnv(gym.GoalEnv):
   metadata = {'render.modes': ['human']}
 
   def __init__(self):
-    self.action_space = spaces.Discrete(5)
+    # self.action_space = spaces.Discrete(5)
+    self.action_space = spaces.MultiDiscrete([5,])
 
     self._hidden_state_space = spaces.MultiDiscrete([10, 2])
     # For this simple env, we assume that there is no hidden variables.
@@ -40,9 +41,10 @@ class TwoDigitsEnv(gym.GoalEnv):
     state = self.state
 
     # TODO: rename...It's not really delta.
+    action_0 = action[0]
     next_state = np.copy(state)
-    if action != 0:
-      next_state[0] = action
+    if action_0 != 0:
+      next_state[0] = action_0
     else:
       # The last action is do nothing.
       pass
