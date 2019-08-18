@@ -1,4 +1,8 @@
-"""A model that predicts the intervention distribution of performing an action"""
+"""A model that predicts the intervention distribution of performing an action_input.
+
+It assumes that the action_input is represented by [batch, types_dim, embed_dim] where each type of action_input is independent of
+the other types and actions within the same type share some commonalities. 
+"""
 import numpy as np
 import scipy.stats
 from tensorflow import keras
@@ -17,9 +21,9 @@ def _get_action_embed(one_hot_action, num_possible_actions, output_dim, name_pos
 def get_intervention_model_one_hot(input_state, input_action, num_possible_actions):
   # Assumes input_state is one-hot with shape (batch, dims, one_hot_state)
   state_shape = keras.backend.int_shape(input_state)
-  # Assumes actions are one-hot encoded (batch, one_hot_action) and each action has an embedding.
+  # Assumes actions are one-hot encoded (batch, one_hot_action) and each action_input has an embedding.
   action_shape = keras.backend.int_shape(input_action)
-  assert action_shape[1] == 1  # TODO: for multiple action dims, I can add their interventions together...
+  assert action_shape[1] == 1  # TODO: for multiple action_input dims, I can add their interventions together...
   action_emb_output_dim = np.prod(state_shape[1:])
 
   # TODO: for general non-one-hot actions, perhaps using the fully connected layer
@@ -55,7 +59,7 @@ def get_intervention_model_one_hot(input_state, input_action, num_possible_actio
 
 
 def infer_action(intervened_state_one_hot, input_state, input_state_one_hot, input_action, data_with_action, data_with_random_action, p_value_threshold=0.05):
-  """Given a trained model, output all the causal edges between each pair of (action, state)."""
+  """Given a trained model, output all the causal edges between each pair of (action_input, state)."""
   # T
   diff_layer = keras.layers.subtract([input_state_one_hot, intervened_state_one_hot])
   # diff = keras.backend.abs(diff)
@@ -63,10 +67,10 @@ def infer_action(intervened_state_one_hot, input_state, input_state_one_hot, inp
   # model.compile(optimizer='adam')
   # diff = model.predict(data)
   predict = keras.backend.function([input_state, input_action], diff_layer)
-  test_diff = predict([data_with_action['current_state'], data_with_action['action']])
-  base_diff = predict([data_with_random_action['current_state'], data_with_random_action['action']])
+  test_diff = predict([data_with_action['state_input'], data_with_action['action_input']])
+  base_diff = predict([data_with_random_action['state_input'], data_with_random_action['action_input']])
 
-  # Assume the diffs follow a gaussian distribution. we say that the action causes the
+  # Assume the diffs follow a gaussian distribution. we say that the action_input causes the
   # state change if 0 is out of the 95% confidence interval of the mean.
   t_test_result = scipy.stats.ttest_ind(base_diff, test_diff, equal_var=False)
   # TODO: use p_value_threshold

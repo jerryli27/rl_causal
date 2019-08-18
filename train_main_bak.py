@@ -2,7 +2,7 @@
 from tensorflow import keras
 import numpy as np
 
-from causal_models import intervention_model
+from causal_models import intervention_model_lib
 from causal_models import predictive_model
 
 
@@ -11,12 +11,12 @@ def get_action_embed(state_shape, num_possible_actions):
 
 def get_data(size, action_embed, state_shape, num_possible_actions):
   x = {
-    'current_state': np.random.random((size, state_shape[0])),
-    'action': np.random.randint(0, num_possible_actions, (size, action_shape[0])),
+    'state_input': np.random.random((size, state_shape[0])),
+    'action_input': np.random.randint(0, num_possible_actions, (size, action_shape[0])),
   }
-  one_hot_action = np.eye(num_possible_actions)[x['action']]
+  one_hot_action = np.eye(num_possible_actions)[x['action_input']]
   one_hot_action = one_hot_action[:, 0, :]  # Get rid of the extra dim
-  y = x['current_state'] + np.matmul(one_hot_action, action_embed)
+  y = x['state_input'] + np.matmul(one_hot_action, action_embed)
   return x, y
 
 def print_action_embed_diff(model, action_embed):
@@ -39,11 +39,11 @@ if __name__ == '__main__':
   # intervention_m = intervention_model.InterventionModel(input_shape, model_type)
   # model = predictive_model.PredictiveModel(input_shape, output_shape, model_type, intervention_m)
 
-  current_state = keras.layers.Input(shape=state_shape, name='current_state')
-  action = keras.layers.Input(shape=action_shape, dtype='int32', name='action')
+  current_state = keras.layers.Input(shape=state_shape, name='state_input')
+  action = keras.layers.Input(shape=action_shape, dtype='int32', name='action_input')
 
-  intervened_state = intervention_model.get_intervention_model_one_hot(current_state, action, num_possible_actions)
-  predicted_next_state = predictive_model.get_predictive_model_one_hot(intervened_state, model_type)
+  intervened_state = intervention_model_lib.get_intervention_model_one_hot(current_state, action, num_possible_actions)
+  predicted_next_state = predictive_model.get_predicted_next_state(intervened_state, model_type)
   model = keras.models.Model(inputs=[current_state, action], outputs=[predicted_next_state])
 
   optimizer = keras.optimizers.Nadam(lr=0.002, beta_1=0.9, beta_2=0.999, epsilon=None, schedule_decay=0.004)

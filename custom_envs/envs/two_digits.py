@@ -46,7 +46,7 @@ class TwoDigitsEnv(gym.GoalEnv):
     if action_0 != 0:
       next_state[0] = action_0
     else:
-      # The last action is do nothing.
+      # The last action_input is do nothing.
       pass
 
     # After intervention, the state evolves into the next following the transition prob.
@@ -84,7 +84,7 @@ class TwoDigitsEnv(gym.GoalEnv):
     return self.goal
 
   def _get_observation(self):
-    """Returns the observation from the current state and goal."""
+    """Returns the observation from the current state and goal_input."""
     return {
       'observation': self.state,
       'achieved_goal': self._get_achieved_goal(),
@@ -104,7 +104,7 @@ class TwoDigitsEnv(gym.GoalEnv):
     return 0.0
 
   def _get_random_goal(self):
-    # For now, return a random goal. In the future, we may want to use a randomly generated
+    # For now, return a random goal_input. In the future, we may want to use a randomly generated
     # sequence of actions and compete our agent against that sequence for efficiency.
     return self._observed_state_space.sample()
 

@@ -4,7 +4,7 @@ import numpy as np
 from tensorflow import keras
 
 def get_critic_network(state, goal):
-  # Assumes state and goal has shape [batch, dim_s, embed_s]
+  # Assumes state and goal_input has shape [batch, dim_s, embed_s]
   # assume action_shape = [batch, dim_a, embed_a]
   hidden_dim = 100
   output_dim = 1

@@ -3,25 +3,35 @@
 
 import numpy as np
 from tensorflow import keras
+from env_utils import env_rl_utils
 from env_utils import get_data_utils
-
+from nn_utils import policy_utils
 
 LOSS_CLIPPING = 0.2  # Only implemented clipping for the surrogate loss, paper said it was best
 NOISE = 1.0  # Exploration noise
-GAMMA = 0.99
 ENTROPY_LOSS = 1e-3
 
-def get_ppo_loss(policy, critic, reward_input, sampling_action_prob, actual_action_one_hot):
+def get_ppo_loss(policy, critic, reward_input, allowed_actions, sampling_action_prob, actual_action_one_hot):
+  return get_ppo_loss_discrete(policy, critic, reward_input, allowed_actions, sampling_action_prob, actual_action_one_hot)
+
+def get_ppo_loss_discrete(policy, critic, reward_input, allowed_actions, sampling_action_prob, actual_action_one_hot, epsilon=1e-10):
   """Return one single loss that does not depend on having a target."""
   advantage = reward_input - critic
 
-  prob = policy * actual_action_one_hot
-  old_prob = policy * sampling_action_prob
-  r = prob / (old_prob + 1e-10)
+  prob = 1.0
+  old_prob = 1.0
+  for i in allowed_actions:
+    prob *= policy[i] * actual_action_one_hot[:, i]
+    old_prob *= policy[i] * sampling_action_prob[:, i]
+  r = prob / (old_prob + epsilon)
   loss = -keras.backend.mean(keras.backend.minimum(r * advantage, keras.backend.clip(r, min_value=1 - LOSS_CLIPPING,
                                                                                        max_value=1 + LOSS_CLIPPING) * advantage) + ENTROPY_LOSS * -(
-          prob * keras.backend.log(prob + 1e-10)))
+          prob * keras.backend.log(prob + epsilon)))
+  loss = keras.layers.Lambda(lambda x: x, name='ppo_loss')(loss)  # Hacky way to give it a name.
   return loss
+
+def get_ppo_loss_continuous():
+  raise NotImplementedError
 
 
 def proximal_policy_optimization_loss(advantage, old_prediction):
@@ -54,41 +64,11 @@ def proximal_policy_optimization_loss_continuous(advantage, old_prediction):
   return loss
 
 
-def get_action(policy_fn, x, action_space, is_eval=False):
-  action_prob = policy_fn(x)[0]  # Batch size = 1
-  # action_matrix = np.zeros(action_space)
-  action = []
-
-  for i in range(len(action_space.shape)):
-    if is_eval is False:
-      curr_action = np.random.choice(action_space[i], p=np.nan_to_num(action_prob[i]))
-    else:
-      curr_action = np.argmax(action_prob[i])
-    # action_matrix[i, curr_action] = 1
-    action.append(curr_action)
-  action = np.array(action)
-  return action, action, action_prob
-
-
-def get_action_continuous(policy_fn, x, is_eval=False):
-  action_prob = policy_fn(x)
-  if is_eval is False:
-    action = action_matrix = action_prob[0] + np.random.normal(loc=0, scale=NOISE, size=action_prob[0].shape)
-  else:
-    action = action_matrix = action_prob[0]
-  return action, action_matrix, action_prob
-
-
-def transform_reward(rewards, is_eval=False):
-  # if is_eval is True:
-  #   self.writer.add_scalar('Val episode reward', np.array(self.reward).sum(), self.episode)
-  # else:
-  #   self.writer.add_scalar('Episode reward', np.array(self.reward).sum(), self.episode)
-  for j in range(len(rewards) - 2, -1, -1):
-    rewards[j] += rewards[j + 1] * GAMMA
-
-
-def get_batch(policy_fn, env, num_data_points, is_continuous=False, is_eval=False):
+def get_batch(policy_fn, env, num_data_points, allowed_action_types, is_continuous=False, is_eval=False):
+  # TODO(jryli): Add goal modification to make the task a bit easier.
+  # TODO(jryli): Scale the reward to between 0 and 1, and constrain the critic to be in between the two as well.
+  # TODO(jryli): there is a discrepancy between training and the trained option network's goal. Maybe have a network that sets harder goals and collect data through that?
+  # TODO(jryli): allow default no-op actions.
   batch = [[], [], [], []]
 
   tmp_batch = [[], [], []]
@@ -96,45 +76,45 @@ def get_batch(policy_fn, env, num_data_points, is_continuous=False, is_eval=Fals
   rewards = []
   while len(batch[0]) < num_data_points:
     if is_continuous is False:
-      action, action_matrix, predicted_action = get_action(policy_fn, get_data_utils.add_batch_dim(last_observation), env.action_space.nvec, is_eval=is_eval)  # TODO: use policy_fn etc.
+      action, action_matrix, action_prob = policy_utils.get_actions(policy_fn, get_data_utils.add_batch_dim(last_observation), env.action_space, allowed_action_types, is_eval=is_eval)
     else:
-      action, action_matrix, predicted_action = get_action_continuous(policy_fn, last_observation, is_eval=is_eval)
+      action, action_matrix, action_prob = policy_utils.get_actions_continuous(policy_fn, last_observation, is_eval=is_eval)
     observation, reward, done, info = env.step(action)
     observation = get_data_utils.convert_env_observation(observation)
     rewards.append(reward)
 
     tmp_batch[0].append(last_observation)
     tmp_batch[1].append(action_matrix)
-    tmp_batch[2].append(predicted_action)
+    tmp_batch[2].append(action_prob)
     last_observation = observation
 
     if done:
-      transform_reward(rewards, is_eval=is_eval)
+      rewards = env_rl_utils.compute_discounted_cumulative_reward(rewards)
       if is_eval is False:
         for i in range(len(tmp_batch[0])):
-          obs, action, pred = tmp_batch[0][i], tmp_batch[1][i], tmp_batch[2][i]
+          obs, action, action_prob = tmp_batch[0][i], tmp_batch[1][i], tmp_batch[2][i]
           r = rewards[i]
           batch[0].append(obs)
           batch[1].append(action)
-          batch[2].append(pred)
+          batch[2].append(action_prob)
           batch[3].append(r)
       tmp_batch = [[], [], []]
       # reset_env
       last_observation = get_data_utils.convert_env_observation(env.reset())
       rewards = []
 
-  obs, action, pred, reward = batch[0], np.array(batch[1]), np.array(batch[2]), np.reshape(np.array(batch[3]),
+  # TODO(jryli): maybe truncate everything to be len == num_data_points
+  obs, action, action_prob, reward = batch[0], np.array(batch[1]), np.array(batch[2]), np.reshape(np.array(batch[3]),
                                                                                                      (len(batch[3]), 1))
   # pred = np.reshape(pred, (pred.shape[0], pred.shape[2]))
   x = get_data_utils.combine_obs_dicts(obs)
   x.update({
     'action': action,
-    'sampling_action_prob': pred,
+    'sampling_action_prob': action_prob,
     'reward': reward,
   })
   y = {
     'critic': reward,
-    'tf_op_layer_Neg_1': keras.backend.zeros_like(reward),
+    'ppo_loss': keras.backend.zeros_like(reward),
   }
   return x, y
-  # return obs, action, pred, reward

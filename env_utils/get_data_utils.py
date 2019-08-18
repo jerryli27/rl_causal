@@ -5,6 +5,7 @@ from tensorflow import keras
 from data_structures import episode
 from data_structures import step_result
 
+OBSERVATION_KEYS = ('state', 'action', 'next_state')
 
 def get_random_action(num_actions, env=None, env_name=None, const_action=None):
   if env is None:
@@ -20,9 +21,10 @@ def get_random_action(num_actions, env=None, env_name=None, const_action=None):
   ret = np.array(ret)
   return ret
 
-def get_data(env_name, num_episodes, env=None, const_action=None, add_random_actions=False):
+def get_data(num_episodes, env_name=None, env=None, const_action=None, add_random_actions=True):
   if env is None:
     env = gym.make(env_name)
+  assert env is not None, 'Please provide either env or env_name.'
   episodes = []
 
   for _ in range(num_episodes):
@@ -50,35 +52,32 @@ def get_init_data(env_name, num_episodes):
 
 
 def get_x_y_from_one_episode(episode):
-  x = {
-    'current_state': [],
-    'action': [],
-  }
+  x = {k: [] for k in OBSERVATION_KEYS}
   y = []
   for i, step_result in enumerate(episode.step_results):
     current_state = episode.init_state if i == 0 else episode.step_results[i-1].obs
     current_state = current_state['observation']
-    x['current_state'].append(current_state)
+    next_state = episode.step_results[i].obs['observation']
+
+    x['state'].append(current_state)
     x['action'].append(step_result.action)
+    x['next_state'].append(next_state)
     y.append(step_result.obs['observation'])
   return x, y
 
 
 def get_x_y_from_episodes(episodes):
   assert episodes
-  x = {
-    'current_state': [],
-    'action': [],
-  }
+  x = {k: [] for k in OBSERVATION_KEYS}
   y = []
   for episode in episodes:
     curr_xs, curr_ys = get_x_y_from_one_episode(episode)
-    x['current_state'].extend(curr_xs['current_state'])
-    x['action'].extend(curr_xs['action'])
+    for k in OBSERVATION_KEYS:
+      x[k].extend(curr_xs[k])
     y.extend(curr_ys)
 
-  x['current_state'] = np.array(x['current_state'])
-  x['action'] = np.array(x['action'])
+  for k in OBSERVATION_KEYS:
+    x[k] = np.array(x[k])
   y = np.array(y)
   return x, y
 
@@ -98,6 +97,21 @@ def add_batch_dim(dictinary):
     ret[k] = np.expand_dims(dictinary[k], axis=0)
   return ret
 
+def remove_batch_dim(data, assert_batch_size_is_one=False):
+  if isinstance(data, dict):
+    ret = {}
+    for k in data.keys():
+      if assert_batch_size_is_one:
+        assert data[k].shape[0] == 1, 'batch size is not 1 but %d' %(data[k].shape[0])
+      ret[k] = data[k][0]
+  elif hasattr(data, 'shape'):
+    if assert_batch_size_is_one:
+      assert data.shape[0] == 1, 'batch size is not 1 but %d' %(data.shape[0])
+    ret = data[0]
+  else:
+    raise NotImplementedError('Unsupported data type %s' %(str(type(data))))
+  return ret
+
 def convert_env_observation(observation, add_batch_dim=False):
   def maybe_add_batch_dim(x):
     if add_batch_dim:
@@ -105,7 +119,7 @@ def convert_env_observation(observation, add_batch_dim=False):
     else:
       return x
   return {
-    'current_state': maybe_add_batch_dim(observation['observation']),
+    'state': maybe_add_batch_dim(observation['observation']),
     'goal': maybe_add_batch_dim(observation['desired_goal']),
   }
 

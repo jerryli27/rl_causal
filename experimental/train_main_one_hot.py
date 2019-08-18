@@ -8,7 +8,7 @@ from tensorflow import keras
 import numpy as np
 import gym
 
-from causal_models import intervention_model
+from causal_models import intervention_model_lib
 from causal_models import predictive_model
 from env_utils import get_data_utils
 from nn_utils import prob_utils
@@ -28,10 +28,10 @@ def print_diff(predicted, expected):
 
 def print_debug_info(x, y, eval_output, index):
   debug_info = {
-    'current_state': x['current_state'][index],
-    'action': x['action'][index],
-    'intervened_state_one_hot': eval_output[0][index],
-    'predicted_next_state_one_hot': eval_output[1][index],
+    'state_input': x['state_input'][index],
+    'action_input': x['action_input'][index],
+    'intervened_state_embed': eval_output[0][index],
+    'predicted_next_state_embed': eval_output[1][index],
     'actual_next_state': y[index],
   }
   print(debug_info)
@@ -40,7 +40,7 @@ if __name__ == '__main__':
   env = gym.make(ENV_NAME)
 
   if not isinstance(env.observation_space, gym.spaces.Dict):
-    raise NotImplementedError('Only goal oriented envs are supported.')
+    raise NotImplementedError('Only goal_input oriented envs are supported.')
 
   state_shape = env.observation_space['observation'].shape
   state_max_num_classes = np.max(env.observation_space['observation'].nvec)
@@ -48,18 +48,18 @@ if __name__ == '__main__':
   num_possible_actions = env.action_space.n
   model_type = 'fc'
 
-  current_state = keras.layers.Input(shape=state_shape, dtype='int32', name='current_state')
-  action = keras.layers.Input(shape=action_shape, dtype='int32', name='action')
+  current_state = keras.layers.Input(shape=state_shape, dtype='int32', name='state_input')
+  action = keras.layers.Input(shape=action_shape, dtype='int32', name='action_input')
 
   current_state_one_hot = keras.backend.one_hot(current_state, state_max_num_classes)
   current_state_one_hot_smoothed = prob_utils.smooth_one_hot(current_state_one_hot, label_smoothing=0.05)
   current_state_logits = prob_utils.inverse_softmax(current_state_one_hot_smoothed)
 
   # TODO: make sure the intervention model supports multidim one hot.
-  intervened_state_logits = intervention_model.get_intervention_model_one_hot(
+  intervened_state_logits = intervention_model_lib.get_intervention_model_one_hot(
     current_state_logits, action, num_possible_actions)
-  predicted_next_state_logits = predictive_model.get_predictive_model_one_hot(intervened_state_logits, model_type)
-  predicted_next_state_one_hot = keras.layers.Softmax(name='predicted_next_state_one_hot')(predicted_next_state_logits)
+  predicted_next_state_logits = predictive_model.get_predicted_next_state(intervened_state_logits, model_type)
+  predicted_next_state_one_hot = keras.layers.Softmax(name='predicted_next_state_embed')(predicted_next_state_logits)
   model = keras.models.Model(inputs=[current_state, action], outputs=[predicted_next_state_logits])
 
   optimizer = keras.optimizers.Nadam(lr=0.002, beta_1=0.9, beta_2=0.999, epsilon=None, schedule_decay=0.004)
@@ -102,12 +102,12 @@ if __name__ == '__main__':
       print('Kernel 11th vector: ', weight[11])
       print('Kernel 10th vector expected: ', [0] * 10 + [1] + [0] * 9)
 
-  # Examine intervened_state_logits
+  # Examine intervened_state
 
-  intervened_state_one_hot = keras.layers.Softmax(name='intervened_state_one_hot')(intervened_state_logits)
+  intervened_state_one_hot = keras.layers.Softmax(name='intervened_state_embed')(intervened_state_logits)
   # prediction_debug_model = keras.models.Model(
-  #   inputs=[current_state, action],
-  #   outputs=[intervened_state_one_hot, predicted_next_state_one_hot])
+  #   inputs=[state_input, action_input],
+  #   outputs=[intervened_state_embed, predicted_next_state_embed])
   # prediction_debug_model.compile(
   #   optimizer=optimizer,)
   # prediction_debug_model_output = prediction_debug_model.predict(x_test)
@@ -115,7 +115,7 @@ if __name__ == '__main__':
     model.fit(x_train, y_train, epochs=1, batch_size=32)
     debug_predict = keras.backend.function(inputs=[current_state, action],
       outputs=[intervened_state_one_hot, predicted_next_state_one_hot])
-    prediction_debug_model_output=debug_predict([x_test['current_state'], x_test['action']])
+    prediction_debug_model_output=debug_predict([x_test['state_input'], x_test['action_input']])
     print_debug_info(x_test, y_test, eval_output=prediction_debug_model_output, index=0)
 
 
@@ -123,10 +123,10 @@ if __name__ == '__main__':
 
 
 
-  action_t_test = intervention_model.infer_action(intervened_state_one_hot, current_state, current_state_one_hot_smoothed, action, x_eval, p_value_threshold=0.05)
+  action_t_test = intervention_model_lib.infer_action(intervened_state_one_hot, current_state, current_state_one_hot_smoothed, action, x_eval, p_value_threshold=0.05)
   print(action_t_test)
 
-  # Evaluate on one specific action.
-  action_t_test = intervention_model.infer_action(intervened_state_one_hot, current_state, current_state_one_hot_smoothed, action, x_test_chosen, p_value_threshold=0.05)
+  # Evaluate on one specific action_input.
+  action_t_test = intervention_model_lib.infer_action(intervened_state_one_hot, current_state, current_state_one_hot_smoothed, action, x_test_chosen, p_value_threshold=0.05)
   print(action_t_test)
   print('Done')

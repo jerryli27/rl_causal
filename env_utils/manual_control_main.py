@@ -26,8 +26,8 @@ def main():
 
   def resetEnv():
     env.reset()
-    if hasattr(env, 'goal'):
-      print('goal: %s' % env.goal)
+    if hasattr(env, 'goal_input'):
+      print('goal_input: %s' % env.goal)
 
   resetEnv()
 

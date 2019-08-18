@@ -7,7 +7,7 @@ class GoStraightCausalModel(object):
   which is decided by its facing direction.
 
   Allowed states: any
-  Allowed action: up
+  Allowed action_input: up
   Goal states: any \in (x+k*dx, y+k*dy)
 
 
@@ -24,7 +24,7 @@ class GoStraightCausalModel(object):
     pass
 
   def do_one_step_reasoning(self, s, a):
-    """Returns the next state given the current state and action."""
+    """Returns the next state given the current state and action_input."""
     pass
 
 

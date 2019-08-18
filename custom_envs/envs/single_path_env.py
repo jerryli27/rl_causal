@@ -31,7 +31,7 @@ class Empty1DEnv(MiniGridEnv):
     # Generate the surrounding walls
     self.grid.wall_rect(0, 0, width, height)
 
-    # Place a goal square in the bottom-right corner
+    # Place a goal_input square in the bottom-right corner
     self.grid.set(width - 2, height - 2, Goal())
 
     # Place the agent
@@ -41,7 +41,7 @@ class Empty1DEnv(MiniGridEnv):
     else:
       self.place_agent()
 
-    self.mission = "get to the green goal square"
+    self.mission = "get to the green goal_input square"
 
 
 class Empty1DEnv5(Empty1DEnv):
