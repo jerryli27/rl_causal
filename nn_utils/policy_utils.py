@@ -2,7 +2,6 @@ import gym
 import numpy as np
 
 from env_utils import get_data_utils
-from rl_models.ppo import NOISE
 
 
 def get_one_action(action_space, action_type_i, action_prob, is_eval):
@@ -46,6 +45,7 @@ def get_actions(policy_fn, x, action_space, allowed_action_types, is_eval=False)
 
 
 def get_actions_continuous(policy_fn, x, is_eval=False):
+  NOISE = 1.0  # Exploration noise
   action_prob = policy_fn(x)
   if is_eval is False:
     action = action_matrix = action_prob[0] + np.random.normal(loc=0, scale=NOISE, size=action_prob[0].shape)

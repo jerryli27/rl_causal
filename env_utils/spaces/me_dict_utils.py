@@ -58,17 +58,17 @@ class MutuallyExclusiveDict(gym.spaces.Space):
 
   def sample(self):
     k = self._sample_space_keys()
-    return OrderedDict([(k, self.spaces[k].sample())])
+    return (k, self.spaces[k].sample())
 
   def contains(self, x):
-    if not isinstance(x, dict) or len(x) != 1:
+    if not (isinstance(x, tuple) or isinstance(x, list)) or len(x) != 2:
       return False
 
-    for k, v in x:
-      if k not in self.spaces:
-        return False
-      if not self.spaces[k].contains(v):
-        return False
+    k, v = x
+    if k not in self.spaces:
+      return False
+    if not self.spaces[k].contains(v):
+      return False
     return True
 
   def __getitem__(self, key):
@@ -96,3 +96,9 @@ class MutuallyExclusiveDict(gym.spaces.Space):
 
   def __eq__(self, other):
     return isinstance(other, MutuallyExclusiveDict) and self.spaces == other.spaces
+
+  def get_allowed_subdict(self, allowed_keys):
+    spaces = {k: self.spaces[k] for k in self.spaces.keys() if k in allowed_keys}
+    if spaces:
+      return MutuallyExclusiveDict(spaces)
+    return None

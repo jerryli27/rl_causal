@@ -6,6 +6,7 @@ from tensorflow import keras
 from env_utils import env_rl_utils
 from env_utils import get_data_utils
 from nn_utils import policy_utils
+from data_structures import option_utils
 
 LOSS_CLIPPING = 0.2  # Only implemented clipping for the surrogate loss, paper said it was best
 NOISE = 1.0  # Exploration noise
@@ -48,6 +49,7 @@ def proximal_policy_optimization_loss(advantage, old_prediction):
 
 def proximal_policy_optimization_loss_continuous(advantage, old_prediction):
   def loss(y_true, y_pred):
+    NOISE = 1.0  # Exploration noise
     var = keras.backend.square(NOISE)
     pi = 3.1415926
     denom = keras.backend.sqrt(2 * pi * var)
@@ -60,61 +62,46 @@ def proximal_policy_optimization_loss_continuous(advantage, old_prediction):
 
     return -keras.backend.mean(keras.backend.minimum(r * advantage, keras.backend.clip(r, min_value=1 - LOSS_CLIPPING,
                                                                                        max_value=1 + LOSS_CLIPPING) * advantage))
-
   return loss
 
 
-def get_batch(policy_fn, env, num_data_points, allowed_action_types, is_continuous=False, is_eval=False):
+def get_batch(policy_fn, env, num_data_points, allowed_action_types, is_eval=False):
   # TODO(jryli): Add goal modification to make the task a bit easier.
   # TODO(jryli): Scale the reward to between 0 and 1, and constrain the critic to be in between the two as well.
   # TODO(jryli): there is a discrepancy between training and the trained option network's goal. Maybe have a network that sets harder goals and collect data through that?
   # TODO(jryli): allow default no-op actions.
-  batch = [[], [], [], []]
+  trajectories = {
+    'state': [],
+    'action': [],
+    'action_prob': [],
+    'reward': [],
+  }
 
-  tmp_batch = [[], [], []]
   last_observation = get_data_utils.convert_env_observation(env.reset())
-  rewards = []
-  while len(batch[0]) < num_data_points:
-    if is_continuous is False:
-      action, action_matrix, action_prob = policy_utils.get_actions(policy_fn, get_data_utils.add_batch_dim(last_observation), env.action_space, allowed_action_types, is_eval=is_eval)
-    else:
-      action, action_matrix, action_prob = policy_utils.get_actions_continuous(policy_fn, last_observation, is_eval=is_eval)
-    observation, reward, done, info = env.step(action)
-    observation = get_data_utils.convert_env_observation(observation)
-    rewards.append(reward)
+  option = option_utils.Option(
+    policy_fn=policy_fn,
+    env=env,
+    allowed_action_types=allowed_action_types,
+    termination_fn=lambda _: False,
+  )
+  while len(trajectories['reward']) < num_data_points:
+    # TODO:
+    raise NotImplementedError('generate goal.')
+    trajectory = option.run_until_termination(last_observation, is_eval=is_eval)
+    for k in trajectories.keys():
+      trajectories[k].extend(trajectory[k])
+    # reset_env
+    last_observation = get_data_utils.convert_env_observation(env.reset())
 
-    tmp_batch[0].append(last_observation)
-    tmp_batch[1].append(action_matrix)
-    tmp_batch[2].append(action_prob)
-    last_observation = observation
-
-    if done:
-      rewards = env_rl_utils.compute_discounted_cumulative_reward(rewards)
-      if is_eval is False:
-        for i in range(len(tmp_batch[0])):
-          obs, action, action_prob = tmp_batch[0][i], tmp_batch[1][i], tmp_batch[2][i]
-          r = rewards[i]
-          batch[0].append(obs)
-          batch[1].append(action)
-          batch[2].append(action_prob)
-          batch[3].append(r)
-      tmp_batch = [[], [], []]
-      # reset_env
-      last_observation = get_data_utils.convert_env_observation(env.reset())
-      rewards = []
-
-  # TODO(jryli): maybe truncate everything to be len == num_data_points
-  obs, action, action_prob, reward = batch[0], np.array(batch[1]), np.array(batch[2]), np.reshape(np.array(batch[3]),
-                                                                                                     (len(batch[3]), 1))
-  # pred = np.reshape(pred, (pred.shape[0], pred.shape[2]))
-  x = get_data_utils.combine_obs_dicts(obs)
+  trajectories['reward'] = np.reshape(trajectories['reward'], (len(trajectories['reward']), 1))
+  x = get_data_utils.combine_obs_dicts(trajectories['state'])
   x.update({
-    'action': action,
-    'sampling_action_prob': action_prob,
-    'reward': reward,
+    'action': np.array(trajectories['action']),
+    'sampling_action_prob': np.array((trajectories['action_prob'])),
+    'reward': trajectories['reward'],
   })
   y = {
-    'critic': reward,
-    'ppo_loss': keras.backend.zeros_like(reward),
+    'critic': trajectories['reward'],
+    'ppo_loss': keras.backend.zeros_like(trajectories['reward']),
   }
   return x, y

@@ -10,6 +10,7 @@ from causal_models import intervention_model_lib
 from causal_models import mine_exp
 from causal_models import predictive_model
 from env_utils import env_rl_utils
+from env_utils import env_wrapper
 from env_utils import get_data_utils
 from nn_utils import keras_utils
 from rl_models import critic_network
@@ -23,7 +24,7 @@ flags.DEFINE_string('env', 'TwoDigits-v0', 'Name of the gym environment.')
 
 
 def main(unused_argv):
-  env = gym.make(FLAGS.env)
+  env = env_wrapper.GymEnvWrapper(gym.make(FLAGS.env))
   if not isinstance(env.observation_space, gym.spaces.Dict):
     raise NotImplementedError('Only goal_input oriented envs are supported.')
 
@@ -35,16 +36,18 @@ def main(unused_argv):
   action_input, action_one_hot = env_rl_utils.get_input_from_space(env.action_space, name='action')
   random_action_input, random_action_one_hot = env_rl_utils.get_input_from_space(env.action_space, name='random_action')
 
-  sampling_action_prob = keras.layers.Input(shape=action_one_hot.shape[1:], dtype='float', name='sampling_action_prob')
+  # TODO: action prob shape needs to change per action type.
+  # sampling_action_prob = keras.layers.Input(shape=action_one_hot.shape[1:], dtype='float', name='sampling_action_prob')
   reward_input = keras.layers.Input(shape=[1], dtype='float', name='reward')
 
   # For now the embeddings are just the identity one hot embeddings.
   state_embed = state_one_hot
   goal_embed = goal_one_hot
-  action_embed = action_one_hot
+  action_embed = action_one_hot  # TODO: add reversible action encoder/decoder.
   next_state_embed = next_state_one_hot
-  _, s_types_dim, s_embed_dim = state_embed.shape
-  _, a_types_dim, a_embed_dim = action_embed.shape
+  random_action_embed = random_action_one_hot
+  # _, s_types_dim, s_embed_dim = state_embed.shape
+  # _, a_types_dim, a_embed_dim = action_embed.shape
 
 
   # raise NotImplementedError('Continue refactor from here.')
@@ -59,7 +62,7 @@ def main(unused_argv):
   # Train a MINE model on the intervention model output.
   # Build MINE
   mine_t_actual, mine_t_random = mine_exp.get_t_network(
-    state_one_hot, action_one_hot, next_state_embed, random_action_one_hot)
+    state_embed, action_embed, next_state_embed, random_action_embed)
   mine_v = mine_exp.get_v_network(mine_t_actual, mine_t_random)
 
   # Train MINE

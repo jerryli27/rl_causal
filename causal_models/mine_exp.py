@@ -12,6 +12,7 @@ def get_t_network(state, actual_action, next_state, random_action):
   x = keras.layers.concatenate([state, next_state])
   interaction = interaction_v2.Interaction(name='mine_t_interaction')
 
+  raise NotImplementedError('support multiple actions.')
   t_actual = interaction([x, actual_action])
   t_random = interaction([x, random_action])
   return t_actual, t_random

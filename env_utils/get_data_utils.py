@@ -60,6 +60,8 @@ def get_x_y_from_one_episode(episode):
     next_state = episode.step_results[i].obs['observation']
 
     x['state'].append(current_state)
+    # TODO: is it possible to have one unified x and y for all the models?
+    raise NotImplementedError
     x['action'].append(step_result.action)
     x['next_state'].append(next_state)
     y.append(step_result.obs['observation'])
@@ -67,6 +69,7 @@ def get_x_y_from_one_episode(episode):
 
 
 def get_x_y_from_episodes(episodes):
+  raise NotImplementedError('Does not support multi action yet.')
   assert episodes
   x = {k: [] for k in OBSERVATION_KEYS}
   y = []
@@ -90,6 +93,12 @@ def filter_by_action(x, y, action):
     x_return[key] = x[key][filter]
   y_return = y_return[filter]
   return x_return, y_return
+
+
+def replace_goal_in_observation(observation, goal):
+  assert 'goal' in observation
+  observation['goal'] = goal
+
 
 def add_batch_dim(dictinary):
   ret = {}
