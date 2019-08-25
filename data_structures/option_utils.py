@@ -31,6 +31,7 @@ class Option(object):
   #   return action_prob
 
   def run_until_termination(self, observation, goal, is_eval=False):
+    raise NotImplementedError('use api from getdata()')
     last_observation = observation
     ret = {
       'state': [],

@@ -33,10 +33,10 @@ def get_network_for_action_embed(action_embed, name=''):
 
 
 @gin.configurable
-def get_policy_network(state, goal, allowed_actions, action_embed, num_hidden=2, hidden_dim=10):
+def get_policy_network(state, allowed_actions, action_embed, num_hidden=2, hidden_dim=10):
   # Assumes state and goal_input has shape [batch, dim_s, embed_s]
   # assume action_shape = [batch, dim_a, embed_a]
-  s_g = keras.layers.concatenate([state, goal])
+  # s_g = keras.layers.concatenate([state, goal])
   model_layers = [
     keras.layers.Flatten(name='flatten'),
   ]
@@ -44,7 +44,7 @@ def get_policy_network(state, goal, allowed_actions, action_embed, num_hidden=2,
     model_layers.append(
       keras.layers.Dense(hidden_dim, kernel_regularizer=keras.regularizers.l1_l2(l1=0.001, l2=0.001), bias_regularizer=keras.regularizers.l1_l2(l1=0.001, l2=0.001), activation='elu', name='fc%d' %i))
   model = keras.models.Sequential(model_layers, name='policy_network_hidden')
-  hidden_layer = model(s_g)
+  hidden_layer = model(state)
   # TODO: use allowed_actions
   mean_network = get_network_for_action_embed(action_embed, name='policy_mean')
   var_log_network = get_network_for_action_embed(action_embed, name='policy_var_log')

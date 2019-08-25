@@ -1,4 +1,4 @@
-from network_structure import action_autoencoder_utils
+from network_structure import autoencoder_utils
 
 import gym
 import numpy as np
@@ -31,7 +31,7 @@ class TestActionAutoencoder(tf.test.TestCase):
     action_type_one_hot, action_vec_inputs = get_actions(action_space, batch)
     embed_dim = 10
 
-    model = action_autoencoder_utils.MutuallyExclusiveActionEncoder(action_space, embed_dim)
+    model = autoencoder_utils.MutuallyExclusiveActionEncoder(action_space, embed_dim)
     action_embed = model((action_type_one_hot, *action_vec_inputs))
     self.assertNotEmpty(action_embed)
     self.assertEqual((batch, num_action_types, embed_dim), action_embed.shape)
@@ -47,10 +47,10 @@ class TestActionAutoencoder(tf.test.TestCase):
     action_type_one_hot, action_vec_inputs = get_actions(action_space, batch)
     embed_dim = 10
 
-    model = action_autoencoder_utils.MutuallyExclusiveActionEncoder(action_space, embed_dim)
+    model = autoencoder_utils.MutuallyExclusiveActionEncoder(action_space, embed_dim)
     action_embed = model((action_type_one_hot, *action_vec_inputs))
 
-    decoder_model = action_autoencoder_utils.MutuallyExclusiveActionDecoder(action_space, embed_dim)
+    decoder_model = autoencoder_utils.MutuallyExclusiveActionDecoder(action_space, embed_dim)
     predicted_action_vecs = decoder_model((action_type_one_hot, action_embed))
     self.assertNotEmpty(predicted_action_vecs)
     for i in range(num_action_types):

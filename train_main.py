@@ -12,7 +12,7 @@ from causal_models import predictive_model
 from env_utils import env_rl_utils
 from env_utils import env_wrapper
 from env_utils import get_data_utils
-from network_structure import action_autoencoder_utils
+from network_structure import autoencoder_utils
 from nn_utils import keras_utils
 from nn_utils import vis_utils
 from rl_models import critic_network
@@ -25,42 +25,64 @@ FLAGS = flags.FLAGS
 flags.DEFINE_string('env', 'TwoDigits-v0', 'Name of the gym environment.')
 flags.DEFINE_integer('embed_dim', 10, 'Dimension of the state and action embeddings.')
 
+GAMMA=0.99
+
 
 def main(unused_argv):
   env = env_wrapper.GymEnvWrapper(env_wrapper.EnvRecordLastActionWrapper(gym.make(FLAGS.env)))
   if not isinstance(env.observation_space, gym.spaces.Dict):
-    raise NotImplementedError('Only goal_input oriented envs are supported.')
+    raise NotImplementedError('Only goal oriented envs are supported.')
 
   optimizer = keras.optimizers.Adam(lr=0.002, beta_1=0.9, beta_2=0.999)
 
-  state_input, state_one_hot = env_rl_utils.get_input_from_space(env.observation_space['observation'], name='state')
-  next_state_input, next_state_one_hot = env_rl_utils.get_input_from_space(env.observation_space['observation'], name='next_state')
-  goal_input, goal_one_hot = env_rl_utils.get_input_from_space(env.observation_space['desired_goal'], name='goal')
+  state_input, state_vec = env_rl_utils.get_input_from_space(env.observation_space, name='state')
+  next_state_input, next_state_vec = env_rl_utils.get_input_from_space(env.observation_space, name='next_state')
+  # goal_input, goal_one_hot = env_rl_utils.get_input_from_space(env.observation_space['desired_goal'], name='goal')
   action_input, action_one_hot = env_rl_utils.get_input_from_space(env.action_space, name='action')
   random_action_input, random_action_one_hot = env_rl_utils.get_input_from_space(env.action_space, name='random_action')
 
   reward_input = keras.layers.Input(shape=[1], dtype='float', name='reward')
 
-  # For now the embeddings are just the identity one hot embeddings.
-  state_embed = state_one_hot
-  goal_embed = goal_one_hot
-  next_state_embed = next_state_one_hot
-  _, s_types_dim, s_embed_dim = state_embed.shape
-
   # Generate data
   train_data_size = 1000
   test_data_size = train_data_size // 10
-  x_train, y_train = get_data_utils.get_data(num_episodes=train_data_size, env=env, action_input=action_input)
-  x_test, y_test = get_data_utils.get_data(num_episodes=test_data_size, env=env, action_input=action_input)
-  x_eval, y_eval = get_data_utils.get_data(num_episodes=test_data_size, env=env, action_input=action_input)
+  x_train, y_train = get_data_utils.get_data(num_episodes=train_data_size, env=env, state_input=state_input, action_input=action_input, gamma=GAMMA)
+  x_test, y_test = get_data_utils.get_data(num_episodes=test_data_size, env=env, state_input=state_input, action_input=action_input, gamma=GAMMA)
+  x_eval, y_eval = get_data_utils.get_data(num_episodes=test_data_size, env=env, state_input=state_input, action_input=action_input, gamma=GAMMA)
+
+  # *****************************
+  # Train State autoencoder model
+  # *****************************
+  state_vec_tuples = tuple(state_vec.values())
+  state_encoder_model = autoencoder_utils.DictSpaceEncoder(env.observation_space, FLAGS.embed_dim)
+  state_embed = state_encoder_model(state_vec_tuples)
+  _, s_types_dim, s_embed_dim = state_embed.shape
+
+  next_state_embed = state_encoder_model(tuple(next_state_vec.values()))
+
+  state_decoder_model = autoencoder_utils.DictSpaceDecoder(env.observation_space, FLAGS.embed_dim)
+  state_vec_decoded = state_decoder_model(state_embed)
+  state_autoencoding_loss = autoencoder_utils.get_mse_loss(state_vec_tuples, state_vec_decoded)
+
+  autoencoded_state_prob_model = keras.models.Model(
+      inputs=state_input, outputs=state_autoencoding_loss)
+  autoencoded_state_prob_model.compile(
+    optimizer=optimizer,
+    loss=keras_utils.identity_loss)
+
+  autoencoded_state_prob_model.fit(x_train, y_train, epochs=10, batch_size=32)
+  score = autoencoded_state_prob_model.evaluate(x_test, y_test, batch_size=32)
+  print('test score: ', score)
+  # Print the input vec and the decoded vec.
+  vis_utils.print_outputs(state_input, [state_vec_tuples, state_vec_decoded], x_test, batch_size=8)
 
 
   # *****************************
-  # Train autoencoder model
+  # Train Action autoencoder model
   # *****************************
   action_type_one_hot = action_one_hot['action_type']
   action_vec_inputs = [action_one_hot[k] for k in action_one_hot.keys() if k != 'action_type']
-  action_encoder_model = action_autoencoder_utils.MutuallyExclusiveActionEncoder(env.action_space, FLAGS.embed_dim)
+  action_encoder_model = autoencoder_utils.MutuallyExclusiveActionEncoder(env.action_space, FLAGS.embed_dim)
   action_embed = action_encoder_model((action_type_one_hot, *action_vec_inputs))
   _, a_types_dim, a_embed_dim = action_embed.shape
   sampling_action_mean_input = keras.layers.Input(shape=action_embed.shape[1:], dtype='float', name='sampling_action_mean')
@@ -70,9 +92,9 @@ def main(unused_argv):
   random_action_vec_inputs = [random_action_one_hot[k] for k in random_action_one_hot.keys() if k != 'random_action_type']
   random_action_embed = action_encoder_model((random_action_type_one_hot, *random_action_vec_inputs))
 
-  action_decoder_model = action_autoencoder_utils.MutuallyExclusiveActionDecoder(env.action_space, FLAGS.embed_dim)
+  action_decoder_model = autoencoder_utils.MutuallyExclusiveActionDecoder(env.action_space, FLAGS.embed_dim)
   action_vec_decoded = action_decoder_model(action_embed)
-  action_autoencoding_loss = action_autoencoder_utils.get_action_loss(action_vec_inputs, action_vec_decoded)
+  action_autoencoding_loss = autoencoder_utils.get_categorical_crossentropy_loss(action_vec_inputs, action_vec_decoded)
 
   autoencoded_action_prob_model = keras.models.Model(
       inputs=action_input, outputs=action_autoencoding_loss)
@@ -83,9 +105,9 @@ def main(unused_argv):
   autoencoded_action_prob_model.fit(x_train, y_train, epochs=10, batch_size=32)
   score = autoencoded_action_prob_model.evaluate(x_test, y_test, batch_size=32)
   print('test score: ', score)
-
   # Print the input vec and the decoded vec.
-  vis_utils.print_outputs(action_input, [action_vec_inputs, action_vec_decoded], x_train, batch_size=8)
+  vis_utils.print_outputs(action_input, [action_vec_inputs, action_vec_decoded], x_test, batch_size=8)
+
 
   # *****************************
   # Train a MINE model
@@ -120,13 +142,13 @@ def main(unused_argv):
   # TODO(jryli): the loss and metrics should be gin-configurable. Also add state encoder.
   predicted_next_state_embed = predictive_model.get_predicted_next_state(intervened_state_embed,
                                                                          output_activation_fn=keras.layers.Softmax())
+  predicted_next_state_loss = keras.losses.mse(next_state_embed, predicted_next_state_embed)
 
   predicted_next_state_model = keras.models.Model(
-    inputs=[state_input, action_input], outputs=[predicted_next_state_embed])
+    inputs=[state_input, next_state_input, action_input], outputs=[predicted_next_state_loss])
   predicted_next_state_model.compile(
     optimizer=optimizer,
-    loss=keras.losses.SparseCategoricalCrossentropy(from_logits=False),
-    metrics=[keras.metrics.SparseCategoricalCrossentropy(from_logits=False)])
+    loss=keras_utils.identity_loss,)
 
   predicted_next_state_model.fit(x_train, y_train, epochs=10, batch_size=32)
   score = predicted_next_state_model.evaluate(x_test, y_test, batch_size=32)
@@ -146,33 +168,37 @@ def main(unused_argv):
                        if causal_relation[state_type_i][action_type_i]]
     if not allowed_action_types:
       continue
-    critic = critic_network.get_critic_network(state_embed, goal_embed)
-    policy_mean, policy_var, policy_action = policy_network.get_policy_network(state_embed, goal_embed, allowed_action_types, action_embed)
+    critic_model = critic_network.get_critic_network()
+    v_current_obs = critic_model(state_embed)
+    v_next_obs = critic_model(next_state_embed)
+    critic_loss = critic_network.get_critic_loss(v_current_obs, v_next_obs, reward_input, gamma=GAMMA)
+
+    policy_mean, policy_var, policy_action = policy_network.get_policy_network(state_embed, allowed_action_types, action_embed)
     policy_action_vec_decoded = action_decoder_model(policy_action)
-    policy_loss = ppo.get_ppo_loss(policy_mean, policy_var, critic, reward_input, sampling_action_mean_input, sampling_action_var_input, action_embed)
-    policy_fn = keras.backend.function(inputs=[state_input, goal_input], outputs=[policy_mean, policy_var, policy_action, *policy_action_vec_decoded])
+    policy_loss = ppo.get_ppo_loss(policy_mean, policy_var, v_current_obs, reward_input, sampling_action_mean_input, sampling_action_var_input, action_embed)
+    policy_fn = keras.backend.function(inputs=state_input, outputs=[policy_mean, policy_var, policy_action, *policy_action_vec_decoded])
 
     joint_ac_loss_model = keras.models.Model(
-      inputs=[state_input, goal_input, action_input, sampling_action_mean_input, sampling_action_var_input, reward_input],
-      outputs=[critic, policy_loss])
+      inputs=[state_input, next_state_input, action_input, sampling_action_mean_input, sampling_action_var_input, reward_input],
+      outputs=[critic_loss, policy_loss])
     joint_ac_loss_model.compile(
       optimizer=optimizer,
-      loss={'ppo_loss': keras_utils.identity_loss, 'critic': 'mse'},
-      loss_weights={'ppo_loss': 1., 'critic': 1.0}
+      loss={'ppo_loss': keras_utils.identity_loss, 'critic_loss': keras_utils.identity_loss},
+      loss_weights={'ppo_loss': 1.0, 'critic_loss': 1.0}
     )
 
     ppo_num_epochs = 20
     ppo_num_episodes = 32
     for _ in range(ppo_num_epochs):
-      ppo_batch_x, ppo_batch_y = ppo.get_ppo_data(policy_fn, action_input, env, ppo_num_episodes)
+      ppo_batch_x, ppo_batch_y = ppo.get_ppo_data(policy_fn, state_input, action_input, env, ppo_num_episodes, gamma=GAMMA)
       # Train policy and critic
       joint_ac_loss_model.fit(ppo_batch_x, ppo_batch_y, epochs=5, batch_size=32)
 
     actor_critic_for_state_type[state_type_i] = {
-      'critic': critic,
+      'v_current_obs': v_current_obs,
       'policy_fn': policy_fn,
     }
-    ppo.get_ppo_data(policy_fn, action_input, env, num_episodes=10, render=True)
+    ppo.get_ppo_data(policy_fn, state_input, action_input, env, num_episodes=10, gamma=GAMMA, render=True)
     print('done')
   # policy_score = policy_loss_model.evaluate(ppo_batch_x_test, ppo_batch_y_test, batch_size=32)
   # critic_score = critic_model.evaluate(ppo_batch_x_test, ppo_batch_y_test, batch_size=32)

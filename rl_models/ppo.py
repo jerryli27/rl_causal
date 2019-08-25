@@ -7,7 +7,7 @@ from env_utils import env_rl_utils
 from env_utils import get_data_utils
 from nn_utils import policy_utils
 from data_structures import option_utils
-from network_structure import action_autoencoder_utils
+from network_structure import autoencoder_utils
 
 LOSS_CLIPPING = 0.2  # Only implemented clipping for the surrogate loss, paper said it was best
 NOISE = 1.0  # Exploration noise
@@ -83,11 +83,11 @@ def proximal_policy_optimization_loss_continuous(advantage, old_prediction):
 def get_ppo_action_fn(policy_fn, is_eval=False):
   def get_action_fn(obs):
     converted = get_data_utils.convert_env_observation(obs, add_batch_dim=True)
-    policy_outputs = policy_fn((converted['state'], converted['goal']))
+    policy_outputs = policy_fn(converted)
     policy_outputs = get_data_utils.remove_batch_dim(policy_outputs)
     policy_mean, policy_var, policy_action = policy_outputs[:3]
     policy_action_vec_decoded = np.array(policy_outputs[3:])
-    action_type = action_autoencoder_utils.get_action_type_from_action_embed(policy_action)
+    action_type = autoencoder_utils.get_action_type_from_action_embed(policy_action)
 
     action_prob = policy_action_vec_decoded[action_type]
     # TODO: do different things based on discrete vs continuous.
@@ -105,19 +105,19 @@ def get_ppo_action_fn(policy_fn, is_eval=False):
   return get_action_fn
 
 
-def get_ppo_data(policy_fn, action_input, env, num_episodes, is_eval=False, render=False):
+def get_ppo_data(policy_fn, state_input, action_input, env, num_episodes, gamma, is_eval=False, render=False):
   # TODO(jryli): Scale the reward to between 0 and 1, and constrain the critic to be in between the two as well.
   # TODO(jryli): there is a discrepancy between training and the trained option network's goal. Maybe have a network that sets harder goals and collect data through that?
 
   # For each observation, feed it in to policy_fn() to get the action prob and actual actions.
   # Perform the action (what if the action is an option? env should take care of it) and record the observed results.
-  x, _ = get_data_utils.get_data(num_episodes, action_input, env=env, get_action_fn=get_ppo_action_fn(policy_fn, is_eval=is_eval), add_random_actions=False, render=render)
-  x_augmented, _ = get_data_utils.get_data(num_episodes, action_input, env=env, get_action_fn=get_ppo_action_fn(policy_fn, is_eval=is_eval), add_random_actions=False, use_augmented_goal=True, render=render)
+  x, _ = get_data_utils.get_data(num_episodes, state_input, action_input, gamma, env=env, get_action_fn=get_ppo_action_fn(policy_fn, is_eval=is_eval), add_random_actions=False, render=render)
+  x_augmented, _ = get_data_utils.get_data(num_episodes, state_input, action_input, gamma, env=env, get_action_fn=get_ppo_action_fn(policy_fn, is_eval=is_eval), add_random_actions=False, use_augmented_goal=True, render=render)
   for k in x_augmented.keys():
     x[k] = np.concatenate((x[k], (x_augmented[k])), axis=0)
   y = {
-    'critic': x['reward'],
-    'ppo_loss': keras.backend.zeros_like(x['reward']),
+    'critic_loss': keras.backend.zeros_like(x['state_reward']),
+    'ppo_loss': keras.backend.zeros_like(x['state_reward']),
   }
   return x, y
 

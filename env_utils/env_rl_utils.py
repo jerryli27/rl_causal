@@ -5,8 +5,6 @@ import tensorflow as tf
 from tensorflow import keras
 from env_utils.spaces import me_dict_utils
 
-GAMMA = 0.99
-
 def _get_input_from_dict_space(space, name):
   keras_input = collections.OrderedDict()
   input_vec = collections.OrderedDict()
@@ -37,15 +35,20 @@ def get_input_from_space(space, name):
     keras_input = keras.layers.Input(shape=shape, dtype='int32', name=name)
     # input_one_hot = keras.backend.one_hot(keras_input, state_max_num_classes)
     input_vec = tf.one_hot(keras_input, state_max_num_classes, name=name+'_one_hot')
+  elif isinstance(space, gym.spaces.Box):
+    shape = space.shape
+    keras_input = keras.layers.Input(shape=shape, dtype='float32', name=name)
+    input_vec = keras_input
   else:
     raise NotImplementedError
   return keras_input, input_vec
 
 
-def compute_discounted_cumulative_reward(rewards, gamma=GAMMA):
-  assert rewards, 'empty rewards'
-  ret = [0.0 for _ in range(len(rewards))]
-  ret[-1] = rewards[-1]
-  for i in range(len(rewards) - 2, -1, -1):
-    ret[i] = ret[i + 1] * gamma + rewards[i]
-  return ret
+# def compute_discounted_cumulative_reward(rewards, gamma=GAMMA):
+#   assert rewards, 'empty rewards'
+#   ret = [0.0 for _ in range(len(rewards))]
+#   ret[-1] = rewards[-1]
+#   for i in range(len(rewards) - 2, -1, -1):
+#     ret[i] = ret[i + 1] * gamma + rewards[i]
+#   return ret
+

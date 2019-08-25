@@ -5,15 +5,34 @@ from tensorflow import keras
 from data_structures import episode
 from data_structures import step_result
 
-OBSERVATION_KEYS = ('state', 'next_state', 'goal', 'reward')
+# OBSERVATION_KEYS = ('state', 'next_state', 'goal', 'reward')
 
-def _get_action_x(action_input):
-  return {k: [] for k in action_input.keys()}
-def _get_empty_x(action_input):
-  x = {k: [] for k in OBSERVATION_KEYS}
-  action_x  = _get_action_x(action_input)
+def _get_x_from_input(action_input):
+  ret = {k: [] for k in action_input.keys()}
+  ret.update({'next_'+k: [] for k in action_input.keys()})
+  return ret
+
+def _get_empty_x(state_input, action_input):
+  x = {'reward': []}
+  state_x = _get_x_from_input(state_input)
+  x.update(state_x)
+  action_x = _get_x_from_input(action_input)
   x.update(action_x)
   return x
+
+
+
+def _convert_observation_to_x(x, observation, next_observation, state_input):
+  for i, (obs_type, v) in enumerate(state_input.items()):
+    assert obs_type.startswith('state_')
+
+    env_obs_type = obs_type[len('state_'):]
+    obs_val = observation[env_obs_type]
+    x[obs_type].append(obs_val)
+
+    next_obs_type = 'next_' + obs_type
+    next_obs_val = next_observation[env_obs_type]
+    x[next_obs_type].append(next_obs_val)
 
 def _convert_action_to_x(x, action, action_input):
   action_type_i, action_val = action
@@ -45,7 +64,7 @@ def get_random_action(num_actions, action_input, env=None, env_name=None, const_
     assert env_name, 'must provide either env or env_name'
     env = gym.make(env_name)
 
-  random_action_x = _get_action_x(action_input)
+  random_action_x = _get_x_from_input(action_input)
   if const_action is None:
     for _ in range(num_actions):
       action = env.action_space.sample()
@@ -60,7 +79,7 @@ def get_random_action(num_actions, action_input, env=None, env_name=None, const_
   return ret
 
 
-def get_data(num_episodes, action_input, env_name=None, env=None, get_action_fn=None, add_random_actions=True, use_augmented_goal=False, render=False):
+def get_data(num_episodes, state_input, action_input, gamma, env_name=None, env=None, get_action_fn=None, add_random_actions=True, use_augmented_goal=False, render=False):
   if env is None:
     env = gym.make(env_name)
   assert env is not None, 'Please provide either env or env_name.'
@@ -81,36 +100,34 @@ def get_data(num_episodes, action_input, env_name=None, env=None, get_action_fn=
       action, action_info = get_action_fn(obs)
       obs, reward, done, info = env.step(action)
       maybe_render_env()
-      step_results.append(step_result.StepResult(action, obs, reward, done, info, action_info))
-    episodes.append(episode.Episode(init_state, step_results))
+      step_results.append(step_result.StepResult(action, obs, reward, done, info, action_info=action_info))
+    episodes.append(episode.Episode(init_state, step_results, gamma=gamma))
 
-  x, y = get_x_y_from_episodes(episodes, action_input, use_augmented_goal=use_augmented_goal, env=env)
+  x, y = get_x_y_from_episodes(episodes, state_input, action_input, use_augmented_goal=use_augmented_goal, env=env)
   if add_random_actions:
-    x.update(get_random_action(env=env, action_input=action_input, num_actions=x['state'].shape[0], ))
+    x.update(get_random_action(env=env, action_input=action_input, num_actions=x['state_observation'].shape[0], ))
   return x, y
 
 
-def get_x_y_from_one_episode(episode, action_input, use_augmented_goal=False, env=None):
-  x = _get_empty_x(action_input)
+def get_x_y_from_one_episode(episode, state_input, action_input, use_augmented_goal=False, env=None):
+  x = _get_empty_x(state_input, action_input)
   y = []
+  if use_augmented_goal:
+    assert ('next_state_desired_goal' in x) and ('next_state_reward' in x)
+
   for i, step_result in enumerate(episode.step_results):
     obs = episode.init_state if i == 0 else episode.step_results[i-1].obs
-    current_state = obs['observation']
-    next_state = episode.step_results[i].obs['observation']
+    next_obs = episode.step_results[i].obs
+    x['reward'].append(episode.step_results[i].reward)
+    y.append(step_result.obs['observation'])
+
+    _convert_observation_to_x(x, obs, next_obs, state_input)
     if use_augmented_goal:
       # Replace the original goal with goal = next_state.
-      goal = next_state
+      next_state = goal = next_obs['observation']
       reward = env.compute_reward(next_state, goal, info=False)
-    else:
-      goal = obs['desired_goal']
-      reward = episode.step_results[i].reward
-
-
-    x['state'].append(current_state)
-    x['next_state'].append(next_state)
-    x['goal'].append(goal)
-    x['reward'].append(reward)
-    y.append(step_result.obs['observation'])
+      x['next_state_desired_goal'][-1] = goal
+      x['next_state_reward'][-1] = reward
 
     # Actions
     _convert_action_to_x(x, step_result.action, action_input)
@@ -120,12 +137,12 @@ def get_x_y_from_one_episode(episode, action_input, use_augmented_goal=False, en
   return x, y
 
 
-def get_x_y_from_episodes(episodes, action_input, use_augmented_goal=False, env=None):
+def get_x_y_from_episodes(episodes, state_input, action_input, use_augmented_goal=False, env=None):
   assert episodes
   x = None
   y = []
   for episode in episodes:
-    curr_xs, curr_ys = get_x_y_from_one_episode(episode, action_input, use_augmented_goal=use_augmented_goal, env=env)
+    curr_xs, curr_ys = get_x_y_from_one_episode(episode, state_input, action_input, use_augmented_goal=use_augmented_goal, env=env)
     if x is None:
       x = {k: [] for k in curr_xs.keys()}
     for k in curr_xs.keys():
@@ -186,10 +203,7 @@ def convert_env_observation(observation, add_batch_dim=False):
       return np.expand_dims(x, axis=0)
     else:
       return x
-  return {
-    'state': maybe_add_batch_dim(observation['observation']),
-    'goal': maybe_add_batch_dim(observation['desired_goal']),
-  }
+  return {'state_' + k: maybe_add_batch_dim(v) for k, v in observation.items()}
 
 
 def combine_obs_dicts(obs_dicts):
