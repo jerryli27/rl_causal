@@ -6,10 +6,28 @@ from env_utils.spaces import me_dict_utils
 
 NATIVE = 'native'
 
+class EnvRecordLastActionWrapper(gym.Wrapper):
+  def __init__(self, env):
+    super().__init__(env)
+    self.last_action = None
 
-class GymEnvWrapper(gym.Env):
+  def reset(self, **kwargs):
+    self.last_action = None
+    return self.env.reset(**kwargs)
+
+  def step(self, action):
+    self.last_action = action
+    return self.env.step(action)
+
+  def render(self, mode='human', **kwargs):
+    print('last_action:', self.last_action)
+    return super().render(mode='human', **kwargs)
+
+class GymEnvWrapper(gym.Wrapper):
   def __init__(self, env, is_eval=False):
+    super(GymEnvWrapper, self).__init__(env)
     self.env = env  # type: gym.Env
+
     self.options = {}
     self.is_eval = is_eval
     self._curr_observation = None
@@ -28,15 +46,12 @@ class GymEnvWrapper(gym.Env):
     self.action_space = me_dict_utils.MutuallyExclusiveDict(action_dict)
 
   def _action_is_option(self, action):
-    return action[0] != NATIVE
+    return action[0] != 0  # Assume 0 is always native.
 
   def add_option(self, option):
     self.options[option.name] = option
     self._construct_action_space()
     raise NotImplementedError('verify tjis works')
-
-  def seed(self, **kwargs):
-    return self.env.seed(**kwargs)
 
   def step(self, action):
     if self._curr_observation is None:
@@ -60,9 +75,3 @@ class GymEnvWrapper(gym.Env):
     observation = self.env.reset()
     self._curr_observation = copy.deepcopy(observation)
     return observation
-
-  def render(self, **kwargs):
-    return self.env.render(**kwargs)
-
-  def close(self):
-    return self.env.close()

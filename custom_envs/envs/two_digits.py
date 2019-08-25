@@ -16,10 +16,12 @@ class TwoDigitsEnv(gym.GoalEnv):
     # In the next version, it may be good to have a function that goes from
     # hidden state to observed state.
     self._observed_state_space = self._hidden_state_space
+    self._reward_space = spaces.Box(low=-np.inf, high=np.inf, shape=tuple())
     self.observation_space = gym.spaces.Dict({
       'observation': self._observed_state_space,
       'achieved_goal': self._observed_state_space,
       'desired_goal': self._observed_state_space,
+      'reward': self._reward_space,
     })
     self.max_num_steps = 20
 
@@ -66,11 +68,10 @@ class TwoDigitsEnv(gym.GoalEnv):
             'You are calling \'step()\' even though this environment has already returned done = True. You should '
             'always call \'reset()\' once you receive \'done = True\' -- any further steps are undefined behavior.')
         self.steps_beyond_done += 1
-    done = ((self.steps_beyond_done is not None) or
-            self._is_desired_goal_achieved(self._get_achieved_goal(), self._get_desired_goal()))
+    done = self._get_is_done()
 
     info = {'done': done, 'steps_beyond_done': self.steps_beyond_done}
-    reward = self.compute_reward(self._get_achieved_goal(), self._get_desired_goal(), info)
+    reward = self.compute_reward(self._get_achieved_goal(), self._get_desired_goal(), done)
 
     return self._get_observation(), reward, done, info
 
@@ -83,23 +84,38 @@ class TwoDigitsEnv(gym.GoalEnv):
   def _get_desired_goal(self):
     return self.goal
 
+  def _get_is_done(self):
+    done = ((self.steps_beyond_done is not None) or
+            self._is_desired_goal_achieved(self._get_achieved_goal(), self._get_desired_goal()))
+    return done
+
+
   def _get_observation(self):
     """Returns the observation from the current state and goal_input."""
-    return {
+    ret = {
       'observation': self.state,
       'achieved_goal': self._get_achieved_goal(),
       'desired_goal': self._get_desired_goal(),
     }
+    ret.update({'reward': self.compute_reward(ret['achieved_goal'], ret['desired_goal'])})
+    return ret
 
   @staticmethod
   def _is_desired_goal_achieved(achieved_goal, desired_goal):
     return np.all(achieved_goal == desired_goal)
 
-  def compute_reward(self, achieved_goal, desired_goal, info):
+  def compute_reward(self, achieved_goal=None, desired_goal=None, info=None):
     """This reward ignores the steps boundary."""
+    if achieved_goal is None:
+      achieved_goal = self._get_achieved_goal()
+    if desired_goal is None:
+      desired_goal = self._get_desired_goal()
+    done = info
+    if done is None:
+      done = self._get_is_done()
     if self._is_desired_goal_achieved(achieved_goal, desired_goal):
       return 1.0
-    if info['done']:
+    if done:
       return -1.0
     return 0.0
 

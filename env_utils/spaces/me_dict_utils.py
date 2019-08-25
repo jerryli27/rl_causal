@@ -54,20 +54,28 @@ class MutuallyExclusiveDict(gym.spaces.Space):
     [space.seed(seed) for space in self.spaces.values()]
 
   def _sample_space_keys(self):
-    return random.choice(self.space_keys)
+    i = random.randint(0, len(self.space_keys) - 1)
+    return i, self.space_keys[i]
 
   def sample(self):
-    k = self._sample_space_keys()
-    return (k, self.spaces[k].sample())
+    i, k = self._sample_space_keys()
+    return (i, self.spaces[k].sample())
+
+  def sample_action_type(self, action_type_i):
+    # assert action_type in self.space_keys, 'action_type `%s`not allowed.' %action_type
+    assert action_type_i < len(self.space_keys), 'action_type_i `%d` out of index.' %action_type_i
+    action_type = self.space_keys[action_type_i]
+    return (action_type_i, self.spaces[action_type].sample())
 
   def contains(self, x):
     if not (isinstance(x, tuple) or isinstance(x, list)) or len(x) != 2:
       return False
 
-    k, v = x
-    if k not in self.spaces:
+    action_type_i, v = x
+    if action_type_i > len(self.space_keys):
       return False
-    if not self.spaces[k].contains(v):
+    action_type = self.space_keys[action_type_i]
+    if not self.spaces[action_type].contains(v):
       return False
     return True
 
